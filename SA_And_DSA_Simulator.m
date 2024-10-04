@@ -1,7 +1,7 @@
 clear all; close all; clc;
 sourceNumber = 150;
 N_sc = 48;
-N_EDT = 3;
+N_EDT = 4;
 %carrier_state = zeros(1,carrier_num); %Boolean
 %Traffic generation
 rate = 0.61;%FEC coding rate
@@ -48,9 +48,10 @@ for idx = 1:length(replica_set)
                 if rand(1) <= pr % new packet coming
                     sendPacketCount = sendPacketCount+1;
                     sourceStatus(source) = 1; %Not decoded
+                    Chosen_EDT_set = randperm(N_EDT,N_replica);
                     for replica = 1:N_replica
                         Chosen_carrier = randi(N_sc);
-                        Chosen_EDT = randi(N_EDT);
+                        Chosen_EDT = Chosen_EDT_set(replica);
                         transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
                         attemptSource(Chosen_EDT,Chosen_carrier) = source; %Record the UE transmitting packet
                     end
