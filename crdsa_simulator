@@ -3,7 +3,7 @@ clear all; close all; clc;
 sourceNumber = 150;
 N_sc = 48;
 N_EDT = 4;
-N_iter = 1; %CRDSA iteration times
+N_iter = 3; %CRDSA iteration times
 %carrier_state = zeros(1,carrier_num); %Boolean
 %Traffic generation
 rate = 0.61;%FEC coding rate
@@ -46,7 +46,7 @@ for idx = 1:length(replica_set)
             sourceStatus = zeros(1,sourceNumber);
             %fprintf(fileID, 'slot = %i \n'
             % , currentSlot);
-            transmissionAttemptsEachSlot = zeros(N_EDT,N_sc);
+            %transmissionAttemptsEachSlot = zeros(N_EDT,N_sc);
             for source = 1:sourceNumber %For each UE
                 if rand(1) <= pr % new packet coming
                     sendPacketCount = sendPacketCount+1;
@@ -55,7 +55,7 @@ for idx = 1:length(replica_set)
                     for replica = 1:N_replica
                         Chosen_carrier = randi(N_sc);
                         Chosen_EDT = Chosen_EDT_set(replica);
-                        transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
+                        %transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
                         index = find(attemptSource(Chosen_EDT,Chosen_carrier,:)==0,1);
                         if isempty(index)==0
                             attemptSource(Chosen_EDT,Chosen_carrier,index) = source; %Record the UE transmitting packet
@@ -70,13 +70,23 @@ for idx = 1:length(replica_set)
             for iter = 1:N_iter
                 for i = 1:N_EDT
                     for j = 1:N_sc
-                        if transmissionAttemptsEachSlot(i,j) == 1 %No collision, not has been decoded
+                        UEarray = attemptSource(i,j,:);
+                        if iter > 1
+                            UEarray(ismember(UEarray, decoded_UE)) = 0; %Remove replicas
+                            UEarray = flip(sort(UEarray));
+                            numZerosToAdd = 10 - length(UEarray);
+                            if numZerosToAdd > 0
+                                UEarray = [UEarray, zeros(1, numZerosToAdd)]; %Maintain array length 
+                            end
+                            attemptSource(i,j,:) = UEarray;
+                        end
+                        if nnz(UEarray) == 1 %No collision, not has been decoded
                             CurrentUE = attemptSource(i,j,1);
                             if sourceStatus(CurrentUE) == 1
                                 ackdPacketCount = ackdPacketCount + 1;
                                 sourceStatus(CurrentUE) = 0;
                                 decoded_UE(end+1) = CurrentUE;
-                                transmissionAttemptsEachSlot(i,j)=transmissionAttemptsEachSlot(i,j)-1;
+                                %transmissionAttemptsEachSlot(i,j)=transmissionAttemptsEachSlot(i,j)-1;
                             end
                         %elseif transmissionAttemptsEachSlot(i,j)>1 %Collision happens CRDSA需要，先不刪去 
                             %pcktCollisionCount = pcktCollisionCount+1;
