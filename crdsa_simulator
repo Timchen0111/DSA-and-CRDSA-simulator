@@ -3,26 +3,24 @@ clear all; close all; clc;
 sourceNumber = 150;
 N_sc = 48;
 N_EDT = 4;
-N_iter = 3; %CRDSA iteration times
-%carrier_state = zeros(1,carrier_num); %Boolean
-%Traffic generation
+N_iter = 4; %CRDSA iteration times
 rate = 0.61;%FEC coding rate
 M = 4;%Modulation: QPSK
 N_pk = 0;%Average number of packets, related to G
 T_EDT = 1;%Single EDT duration
 packet_bit =328;%Packet bit length
-replica_set = [1, 2, 3]; % DSA
-count=1;
+replica_set = [1 2 3];
 simulationTime=1e3;
-%total_num = EDT_occasion_num*carrier_num;
-%需重新考慮traffic load 計算方式
-%Test for different number of carrier
-%for lambda=[0:0.2:8] %Simulation for different traffic load.
-for idx = 1:length(replica_set)
-    N_replica = replica_set(idx); % 当前replica数
-    %Packet_loss_ratio = zeros(length(replica_set), 91); 
-    count = 1;
-    for G= 0:10:90 %Simulation for different traffic load. Unit: kbps
+%total_num = EDT_occasion_num*carrier_num;r
+for idx = 1:length(replica_set)+1
+    count=1;
+    if idx == length(replica_set)+1
+        N_iter=1;
+        N_replica=2; %DSA simulation
+    else
+        N_replica = replica_set(idx); 
+    end
+    for G= 10:10:90 %Simulation for different traffic load. Unit: kbps
         %Generate Poisson arrival
         G_ = G*1000;
         N_pk = G_*T_EDT/packet_bit;
@@ -99,36 +97,39 @@ for idx = 1:length(replica_set)
         count=count+1
     end
 end
-load = 0:10:90;
+load = 10:10:90;
 throughput = load.*(1-Packet_loss_ratio);
-%% plot
+% plot
 figure(1)
 plot(load(1,:),throughput(1,:), '-','color','red')
 hold on;
 plot(load(1,:),throughput(2,:), '-','color','green')
 hold on;
 plot(load(1,:),throughput(3,:), '-','color','blue')
-%plot(carrier_number(1,:),throughput(1,:), '-x')
-title('Average Throughput')
-xlabel('G (Offered Traffic)')
-%xlabel('number of frequency carriers')
+hold on
+plot(load(1,:),throughput(4,:), '-','color','cyan')
+hold on;
+%title('Average Throughput')
+%xlabel('G (Offered Traffic)')
+% %xlabel('number of frequency carriers')
 ylabel('Average Throughput')
-legend('SA', 'DSA N=2', 'DSA N=3','location','best'); % 添加图例
+legend('SA', 'CRDSA N=2', 'CRDSA N=3', 'DSA N=2','location','best'); % 添加图例
 hold on;
 grid on
-%Collision_prob = log10(Collision_prob);
+% %Collision_prob = log10(Collision_prob);
 figure(2)
 plot(load(1,:),Packet_loss_ratio(1,:), '-','color','red')
 hold on;
 plot(load(1,:),Packet_loss_ratio(2,:), '-','color','green')
 hold on;
 plot(load(1,:),Packet_loss_ratio(3,:), '-','color','blue')
+hold on;
+plot(load(1,:),Packet_loss_ratio(4,:), '-','color','cyan')
+hold on;
 title('Packet Loss Ratio')
 xlabel('G (Offered Traffic)')
-%xlabel('number of frequency carriers')
-set(gca, 'YScale', 'log');
+set(gca, 'YScale', 'log'); 
 ylabel('Packet Loss Ratio')
-legend('SA', 'DSA N=2', 'DSA N=3','location','best'); % 添加图例
+legend('SA', 'CRDSA N=2', 'CRDSA N=3', 'DSA N=2','location','best'); % 添加图例
 hold on;
-grid on
-%toc
+grid on;
