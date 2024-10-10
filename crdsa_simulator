@@ -28,6 +28,9 @@ for idx = 1:length(replica_set)+1
     else
         N_replica = replica_set(idx); 
     end
+    if idx == 1
+        N_iter = 1;
+    end
     for G= 1:1:100 %Simulation for different traffic load. Unit: kbps
         %Generate Poisson arrival
         G_ = G*1000;
@@ -149,4 +152,5 @@ hold on;
 grid on
 saveas(gcf, 'packet_loss_ratio.png'); % gcf 代表當前的圖形窗口
 % %toc
+
 
