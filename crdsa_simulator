@@ -12,7 +12,8 @@ N_pk = 0;%Average number of packets, related to G
 T_EDT = 1;%Single EDT duration
 packet_bit =328;%Packet bit length
 %replica_set = [1, 2, 3]; % DSA
-replica_set = [1 2 3];
+replica_set = [1 2 3 2];
+iter_set = [1 4 4 1];
 simulationTime=1e4;
 %total_num = EDT_occasion_num*carrier_num;
 %需重新考慮traffic load 計算方式
@@ -20,17 +21,10 @@ simulationTime=1e4;
 %for lambda=[0:0.2:8] %Simulation for different traffic load.
 %for idx = 1:length(iter)
  %   N_iter = idx;
-for idx = 1:length(replica_set)+1
+for idx = 1:length(replica_set)
     count=1;
-    if idx == length(replica_set)+1
-        N_iter=1;
-        N_replica=2; %DSA simulation
-    else
-        N_replica = replica_set(idx); 
-    end
-    if idx == 1
-        N_iter = 1;
-    end
+    N_iter = iter_set(idx);
+    N_replica = replica_set(idx);
     for G= 1:1:100 %Simulation for different traffic load. Unit: kbps
         %Generate Poisson arrival
         G_ = G*1000;
@@ -131,7 +125,7 @@ ylabel('Average Throughput')
 legend('SA', 'CRDSA N=2', 'CRDSA N=3', 'DSA N=2','location','best'); % 添加图例
 hold on;
 grid on
-saveas(gcf, 'throughput_plot.png'); % gcf 代表當前的圖形窗口
+%saveas(gcf, 'throughput_plot.png'); % gcf 代表當前的圖形窗口
 % %Collision_prob = log10(Collision_prob);
 figure(2)
 plot(load(1,:),Packet_loss_ratio(1,:), '-','color','red')
@@ -150,7 +144,5 @@ ylabel('Packet Loss Ratio')
 legend('SA', 'CRDSA N=2', 'CRDSA N=3', 'DSA N=2','location','best'); % 添加图例
 hold on;
 grid on
-saveas(gcf, 'packet_loss_ratio.png'); % gcf 代表當前的圖形窗口
+%saveas(gcf, 'packet_loss_ratio.png'); % gcf 代表當前的圖形窗口
 % %toc
-
-
