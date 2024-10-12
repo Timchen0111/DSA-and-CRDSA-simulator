@@ -1,0 +1,384 @@
+clear all; close all; clc;
+%tic;
+sourceNumber = 300;
+N_sc = 48;
+N_EDT = 4;
+N_iter = 4; %CRDSA iteration times
+%carrier_state = zeros(1,carrier_num); %Boolean
+%Traffic generation
+rate = 0.61;%FEC coding rate
+M = 4;%Modulation: QPSK
+N_pk = 0;%Average number of packets, related to G
+T_EDT = 1;%Single EDT duration
+packet_bit =328;%Packet bit length
+%replica_set = [1, 2, 3]; % DSA
+replica_set = [1 2 3];
+iter_set = [1 4 4];
+simulationTime=1e3;
+%total_num = EDT_occasion_num*carrier_num;
+%需重新考慮traffic load 計算方式
+%Test for different number of carrier
+%for lambda=[0:0.2:8] %Simulation for different traffic load.
+%for idx = 1:length(iter)
+ %   N_iter = idx;
+sample=4;
+
+for idx = 1:length(replica_set)
+    count=1;
+    N_iter = iter_set(idx);
+    N_replica = replica_set(idx);
+    for G= sample:sample:150 %Simulation for different traffic load. Unit: kbps
+        %Generate Poisson arrival
+        G_ = G*1000;
+        N_pk = G_*T_EDT/packet_bit;
+        lambda = N_pk;%Calculate average number of packets
+        % 0: idle source
+        % 1: active
+        pcktTransmissionAttempts = 0;
+        %nodeDelay = zeros(1, sourceNumber);
+        %sumDelay=0;
+        ackdPacketCount = 0;
+        sendPacketCount = 0;
+        pcktCollisionCount = 0;
+        burstSlot = 0;
+        pr = 1 - exp(-lambda/sourceNumber);  % 根據 Poisson 分佈來計算傳輸機率 此行導致throughput不隨UE量增加，因throughput只受lambda影響
+        %fileID = fopen('lambda5.txt','w');
+        time = 0;
+        while time < simulationTime
+            time = time+1;%Time pass by
+            %Packet transmission
+            attemptSource = zeros(N_EDT,N_sc,10); %前兩維表示EDT和carrier，第三維用來儲存加入的UE。為節省計算資源，只開十個位置，如果超過另外處理。
+            sourceStatus = zeros(1,sourceNumber);            
+            %fprintf(fileID, 'slot = %i \n'
+            % , currentSlot);
+            %transmissionAttemptsEachSlot = zeros(N_EDT,N_sc);
+            for source = 1:sourceNumber %For each UE
+                if rand(1) <= pr % new packet coming
+                    sendPacketCount = sendPacketCount+1;
+                    sourceStatus(source) = 1; %Not decoded
+                    Chosen_EDT_set = randperm(N_EDT,N_replica);
+                    for replica = 1:N_replica
+                        Chosen_carrier = randi(N_sc);
+                        Chosen_EDT = Chosen_EDT_set(replica);
+                        %transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
+                        index = find(attemptSource(Chosen_EDT,Chosen_carrier,:)==0,1);
+                        if isempty(index)==0
+                            attemptSource(Chosen_EDT,Chosen_carrier,index) = source; %Record the UE transmitting packet
+                        else
+                            attemptSource(Chosen_EDT,Chosen_carrier,end+1) = source; %Record the UE transmitting packet
+                        end
+                    end
+                end
+            end
+            %Decoding
+            decoded_UE = [];
+            for iter = 1:N_iter
+                for i = 1:N_EDT
+                    for j = 1:N_sc
+                        burst_num = nnz(attemptSource(i,j,:));
+                        if iter > 1 && burst_num ~= 0
+                            UEarray = attemptSource(i,j,:);
+                            UEarray(ismember(UEarray, decoded_UE)) = 0; %Remove % Sort decoded_UE to improve search efficiency
+                            UEarray = flip(sort(UEarray));
+                            numZerosToAdd = 10 - length(UEarray);                           
+                            if numZerosToAdd > 0
+                                UEarray = [UEarray, zeros(1, numZerosToAdd)]; %Maintain array length 
+                            end
+                            attemptSource(i,j,:) = UEarray;
+                            burst_num = nnz(attemptSource(i,j,:));
+                        end                        
+                        if burst_num == 1 %No collision, not has been decoded
+                            CurrentUE = attemptSource(i,j,1);
+                            if sourceStatus(CurrentUE) == 1
+                                ackdPacketCount = ackdPacketCount + 1;
+                                sourceStatus(CurrentUE) = 0;
+                                decoded_UE(end+1) = CurrentUE;
+                                %transmissionAttemptsEachSlot(i,j)=transmissionAttemptsEachSlot(i,j)-1;
+                            end
+                        %elseif transmissionAttemptsEachSlot(i,j)>1 %Collision happens CRDSA需要，先不刪去 
+                            %pcktCollisionCount = pcktCollisionCount+1;
+                        end
+                    end
+                end
+            end
+        end       
+        Packet_loss_ratio(idx,count) = 1 - ackdPacketCount / sendPacketCount;
+        count=count+1
+    end
+end
+%{
+%Dynamic CRDSA (UE trigger)
+count=1;
+N_iter = 4;
+UERecoder = zeros(1,1e2);
+for G= sample:sample:100 %Simulation for different traffic load. Unit: kbps
+        %Generate Poisson arrival
+        sourceReplica = 3 * ones(1, sourceNumber);
+        sourceRecorder = zeros(1,sourceNumber);
+        sourcePunishment = zeros(1,sourceNumber); %Boolean, punishment or not.
+        G_ = G*1000;
+        N_pk = G_*T_EDT/packet_bit;
+        lambda = N_pk;%Calculate average number of packets
+        % 0: idle source
+        % 1: active
+        pcktTransmissionAttempts = 0;
+        %nodeDelay = zeros(1, sourceNumber);
+        %sumDelay=0;
+        ackdPacketCount = 0;
+        sendPacketCount = 0;
+        pcktCollisionCount = 0;
+        burstSlot = 0;
+        pr = 1 - exp(-lambda/sourceNumber);  % 根據 Poisson 分佈來計算傳輸機率 此行導致throughput不隨UE量增加，因throughput只受lambda影響
+        %fileID = fopen('lambda5.txt','w');
+        time = 0;
+        while time < simulationTime
+            time = time+1;%Time pass by
+            %Packet transmission
+            attemptSource = zeros(N_EDT,N_sc,10); %前兩維表示EDT和carrier，第三維用來儲存加入的UE。為節省計算資源，只開十個位置，如果超過另外處理。
+            sourceStatus = zeros(1,sourceNumber);            
+            for source = 1:sourceNumber %For each UE
+                sourcePunishment(CurrentUE) = 0; 
+                if rand(1) <= pr % new packet coming
+                    sendPacketCount = sendPacketCount+1;
+                    sourceStatus(source) = 1; %Not decoded
+                    UERecoder(1,time) = sourceRecorder(1,1);
+                    N_replica = sourceReplica(source);
+                    Chosen_EDT_set = randperm(N_EDT,N_replica);
+                    for replica = 1:N_replica
+                        Chosen_carrier = randi(N_sc);
+                        Chosen_EDT = Chosen_EDT_set(replica);
+                        index = find(attemptSource(Chosen_EDT,Chosen_carrier,:)==0,1);
+                        if isempty(index)==0
+                            attemptSource(Chosen_EDT,Chosen_carrier,index) = source; %Record the UE transmitting packet
+                        else
+                            attemptSource(Chosen_EDT,Chosen_carrier,end+1) = source; %Record the UE transmitting packet
+                        end
+                    end
+                end
+            end
+            %Decoding
+            
+            decoded_UE = [];
+            for iter = 1:N_iter
+                for i = 1:N_EDT
+                    for j = 1:N_sc
+                        burst_num = nnz(attemptSource(i,j,:));
+                        if iter > 1 && burst_num ~= 0
+                            UEarray = attemptSource(i,j,:);
+                            UEarray(ismember(UEarray, decoded_UE)) = 0; %Remove % Sort decoded_UE to improve search efficiency
+                            UEarray = flip(sort(UEarray));
+                            numZerosToAdd = 10 - length(UEarray);                           
+                            if numZerosToAdd > 0
+                                UEarray = [UEarray, zeros(1, numZerosToAdd)]; %Maintain array length 
+                            end
+                            attemptSource(i,j,:) = UEarray;
+                            burst_num = nnz(attemptSource(i,j,:));
+                        end                        
+                        if burst_num == 1 %No collision, not has been decoded
+                            CurrentUE = attemptSource(i,j,1);
+                            if sourceStatus(CurrentUE) == 1
+                                sourceRecorder(CurrentUE) = sourceRecorder(CurrentUE)+1; %Success=>Reward+1
+                                ackdPacketCount = ackdPacketCount + 1;
+                                sourceStatus(CurrentUE) = 0;
+                                decoded_UE(end+1) = CurrentUE;
+                                %transmissionAttemptsEachSlot(i,j)=transmissionAttemptsEachSlot(i,j)-1;
+                            end
+                        elseif burst_num > 1
+                            if iter == N_iter
+                                for index = 1:burst_num
+                                    if attemptSource(i,j,index)~=0
+                                        CurrentUE = attemptSource(i,j,index);
+                                        if sourcePunishment(CurrentUE) == 0
+                                            sourceRecorder(CurrentUE) = sourceRecorder(CurrentUE)-5; %Fail => Punishment-2
+                                            sourcePunishment(CurrentUE) = 1;
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            for source = 1:sourceNumber
+                if sourceRecorder(source)>10
+                    sourceReplica(source) = 3;
+                elseif sourceRecorder(source)>-5
+                    sourceReplica(source) = 2;
+                else
+                    sourceReplica(source) = 1;
+                end
+            end
+        end       
+        Packet_loss_ratio(3,count) = 1 - ackdPacketCount / sendPacketCount;
+        count=count+1
+end
+%}
+%Dynamic CRDSA (BS trigger)
+N_iter = 4;
+Initial_replica = 3;
+N_replica = Initial_replica;
+count = 1;
+AdjustmentSet = [ 0.7 0.8 ; 0.65 0.75 ; 0.6 0.7 ];
+
+AdjustmentTime = 10;
+Record_replica = zeros(sample,time);
+for idx = 1:3
+    idx
+    count=1;
+for G= sample:sample:150 %Simulation for different traffic load. Unit: kbps
+    %Generate Poisson arrival
+        G_ = G*1000;
+        N_pk = G_*T_EDT/packet_bit;
+        lambda = N_pk;%Calculate average number of packets
+        % 0: idle source
+        % 1: active
+        pcktTransmissionAttempts = 0;
+        %nodeDelay = zeros(1, sourceNumber);
+        %sumDelay=0;
+        ackdPacketCount = 0;
+        sendPacketCount = 0;
+        pcktCollisionCount = 0;
+        burstSlot = 0;
+        pr = 1 - exp(-lambda/sourceNumber);  % 根據 Poisson 分佈來計算傳輸機率 此行導致throughput不隨UE量增加，因throughput只受lambda影響
+        %fileID = fopen('lambda5.txt','w');
+        time = 0;
+        
+        while time < simulationTime
+            Success = 0;
+            Collision = 0;
+            time = time+1;%Time pass by
+            %Packet transmission
+            attemptSource = zeros(N_EDT,N_sc,10); %前兩維表示EDT和carrier，第三維用來儲存加入的UE。為節省計算資源，只開十個位置，如果超過另外處理。
+            sourceStatus = zeros(1,sourceNumber);            
+            %fprintf(fileID, 'slot = %i \n'
+            Record_replica(count,time) = N_replica;
+            % , currentSlot);
+            %transmissionAttemptsEachSlot = zeros(N_EDT,N_sc);
+            for source = 1:sourceNumber %For each UE
+                if rand(1) <= pr % new packet coming
+                    sendPacketCount = sendPacketCount+1;
+                    sourceStatus(source) = 1; %Not decoded
+                    Chosen_EDT_set = randperm(N_EDT,N_replica);
+                    for replica = 1:N_replica
+                        Chosen_carrier = randi(N_sc);
+                        Chosen_EDT = Chosen_EDT_set(replica);
+                        %transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
+                        index = find(attemptSource(Chosen_EDT,Chosen_carrier,:)==0,1);
+                        if isempty(index)==0
+                            attemptSource(Chosen_EDT,Chosen_carrier,index) = source; %Record the UE transmitting packet
+                        else
+                            attemptSource(Chosen_EDT,Chosen_carrier,end+1) = source; %Record the UE transmitting packet
+                        end
+                    end
+                end
+            end
+            %Decoding
+            decoded_UE = [];
+            for iter = 1:N_iter
+                for i = 1:N_EDT
+                    for j = 1:N_sc
+                        burst_num = nnz(attemptSource(i,j,:));
+                        if iter > 1 && burst_num ~= 0
+                            UEarray = attemptSource(i,j,:);
+                            UEarray(ismember(UEarray, decoded_UE)) = 0; %Remove % Sort decoded_UE to improve search efficiency
+                            UEarray = flip(sort(UEarray));
+                            numZerosToAdd = 10 - length(UEarray);                           
+                            if numZerosToAdd > 0
+                                UEarray = [UEarray, zeros(1, numZerosToAdd)]; %Maintain array length 
+                            end
+                            attemptSource(i,j,:) = UEarray;
+                            burst_num = nnz(attemptSource(i,j,:));
+                        end                        
+                        if burst_num == 1 %No collision, not has been decoded
+                            CurrentUE = attemptSource(i,j,1);
+                            if sourceStatus(CurrentUE) == 1
+                                ackdPacketCount = ackdPacketCount + 1;
+                                sourceStatus(CurrentUE) = 0;
+                                decoded_UE(end+1) = CurrentUE;
+                                Success = Success+1;
+                            end
+                        elseif burst_num > 1 %Collision happens CRDSA需要，先不刪去 
+                            Collision = Collision+1;
+                        end
+                    end
+                end
+            end
+            Collision_prob = Collision / (Success+Collision);
+            if mod(time,AdjustmentTime) == 0
+                if Collision_prob > AdjustmentSet(idx,2) 
+                    N_replica = 1;
+                elseif Collision_prob > AdjustmentSet(idx,1) 
+                    N_replica = 2;
+                else
+                    N_replica = 3;
+                end
+            end
+        end       
+        Packet_loss_ratio(idx+3,count) = 1 - ackdPacketCount / sendPacketCount;
+        count=count+1
+end
+end
+
+load = sample:sample:150;
+throughput = load.*(1-Packet_loss_ratio);
+%{
+figure(1)
+plot(load(1,:),throughput(1,:), '-','color','red')
+figure(2)
+plot(load(1,:),Packet_loss_ratio(1,:), '-','color','red')
+% %% plot
+%}
+
+figure(1)
+
+plot(load(1,:),throughput(1,:), '-','color','red')
+hold on;
+plot(load(1,:),throughput(2,:), '-','color','green')
+hold on;
+plot(load(1,:),throughput(3,:), '-','color','blue')
+hold on
+plot(load(1,:),throughput(4,:), '-','color','black')
+hold on;
+plot(load(1,:),throughput(5,:), '-','color','cyan')
+hold on;
+plot(load(1,:),throughput(6,:), '-','color','magenta')
+hold on;
+
+% %plot(carrier_number(1,:),throughput(1,:), '-x')
+%title('Average Throughput')
+%xlabel('G (Offered Traffic)')
+% %xlabel('number of frequency carriers')
+title('Throughput')
+xlabel('Traffic load(kbps)')
+ylabel('Average Throughput')
+legend('SA', 'CRDSA N = 2', 'CRDSA N=3','BS trigger (0.7 0.8)','BS trigger (0.65 0.75)','BS trigger (0.6.7)','location','best');
+hold on;
+grid on
+%saveas(gcf, 'throughput_plot.png'); % gcf 代表當前的圖形窗口
+% %Collision_prob = log10(Collision_prob);
+figure(2)
+plot(load(1,:),Packet_loss_ratio(1,:), '-','color','red')
+hold on;
+plot(load(1,:),Packet_loss_ratio(2,:), '-','color','green')
+hold on;
+plot(load(1,:),Packet_loss_ratio(3,:), '-','color','blue')
+hold on;
+plot(load(1,:),Packet_loss_ratio(4,:), '-','color','black')
+hold on;
+plot(load(1,:),Packet_loss_ratio(5,:), '-','color','cyan')
+hold on;
+plot(load(1,:),Packet_loss_ratio(6,:), '-','color','magenta')
+hold on;
+
+title('Packet Loss Ratio')
+xlabel('Traffic load(kbps)')
+% %xlabel('number of frequency carriers')
+set(gca, 'YScale', 'log'); 
+ylabel('Packet Loss Ratio')
+legend('SA', 'CRDSA N = 2', 'CRDSA N=3','BS trigger (0.7 0.8)','BS trigger (0.65 0.75)','BS trigger (0.6.7)','location','best');
+hold on;
+grid on
+%saveas(gcf, 'packet_loss_ratio.png'); % gcf 代表當前的圖形窗口
+% %toc
+figure(3)
+histogram(Record_replica);
