@@ -1,0 +1,224 @@
+clear all;
+close all;
+sourceNumber = 1000;
+N_sc = 48;
+N_EDT = 4;
+%carrier_state = zeros(1,carrier_num); %Boolean
+%Traffic generation
+rate = 0.61;%FEC coding rate
+M = 4;%Modulation: QPSK
+N_pk = 0;%Average number of packets, related to G
+T_EDT = 1;%Single EDT duration
+packet_bit =328;%Packet bit length
+%replica_set = [1, 2, 3]; % DSA
+count=1;
+simulationTime = floor(1e4*0.384); %Number of time unit (384ms)
+maxRetransmissionTrial = 3; %Maximum number of retransmission trial
+RetransmissionTrial = zeros(1,sourceNumber);
+sample = 2;
+maxload = 40;
+Max_backoff = 1; %先不使用BO
+Waiting_queue_size = 11; 
+Single_packet_BLER = 0.01; %R2-2407502
+Backoff_recorder = zeros(1,simulationTime);
+%加入ACB
+
+
+% QPSK 傳輸錯誤相關參數
+%{
+SNR_dB = 4.8; % 從通道模型推估
+SNR = 10^(SNR_dB/10); % 線性值
+SER_QPSK = 2 * qfunc(sqrt(2 * SNR)); % 符號誤碼率
+BER_QPSK = SER_QPSK / log2(M); % 位元誤碼率 (M=4, QPSK)
+PLR = 1-(1-BER_QPSK)^packet_bit;
+%}
+PLR = 1e-2;
+Parameter_Setting = [1 1; 2 1; 1 0.8;2 0.8; 1 0.5; 2,0.5];
+
+for idx = 1:length(Parameter_Setting)
+    N_replica = Parameter_Setting(idx,1); % 当前replica数
+    ACB_factor = Parameter_Setting(idx,2);
+    count = 1;
+    for G= sample:sample:maxload %Simulation for different traffic load. Unit: kbps
+        backoffTimers = -1*ones(1, sourceNumber); % Track backoff state for each source       
+        RetransmisionTrial = zeros(1, sourceNumber); %R ecord the number of retransmission trial
+        Delay = zeros(1, sourceNumber);
+        Waiting_queue = zeros(1,sourceNumber); %Waiting queue when the UE is executing backoff
+        RTT_blocked = zeros(1,sourceNumber); %When succeful, still need to wait RTT.
+        %Generate Poisson arrival
+        G_ = G*1000;
+        N_pk = G_*T_EDT/packet_bit;
+        lambda = N_pk; %Calculate average number of packets
+        attemptSource = zeros(N_EDT,N_sc);
+        pcktTransmissionAttempts = 0;
+        ackdPacketCount = 0;
+        sendPacketCount = 0;
+        blockingPacketCount = 0;
+        lossPacketCount = 0;
+        Total_Delay = 0; 
+        burstSlot = 0;
+        pr = 1 - exp(-lambda/sourceNumber);  % 根據 Poisson 分佈來計算傳輸機率 此行導致throughput不隨UE量增加，因throughput只受lambda影響
+        time = 0;
+        %Each time slot is 384ms (4 EDT occasion with 96ms for each)
+        %RRT is 510ms
+        while time < simulationTime
+            time = time+1;%Time pass by     
+            Decoded = zeros(1,sourceNumber);
+            transmissionAttemptsEachSlot = zeros(N_EDT,N_sc);
+            Backoff_recorder(1,time) = backoffTimers(1);
+            for source = 1:sourceNumber %For each UE
+                if rand(1) <= pr %New packet coming                   
+                    sendPacketCount = sendPacketCount + 1;
+                    if Waiting_queue(source) < Waiting_queue_size + 1
+                         Waiting_queue(source) = Waiting_queue(source)+1;
+                    else
+                        blockingPacketCount = blockingPacketCount+1;
+                    end
+                end
+                if backoffTimers(source) > 0 % Check if the source is in a backoff state
+                    backoffTimers(source) = backoffTimers(source) - 1; % Decrement backoff timer
+                elseif RTT_blocked(source) > 0
+                    RTT_blocked(source) = RTT_blocked(source)-1;
+                elseif backoffTimers(source) == 0 % The timer has expired
+                    Decoded(source) = 1; %Not decoded
+                    Chosen_EDT_set = randperm(N_EDT,N_replica);
+                    for replica = 1:N_replica
+                        Chosen_carrier = randi(N_sc);
+                        Chosen_EDT = Chosen_EDT_set(replica);
+                        transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
+                        attemptSource(Chosen_EDT,Chosen_carrier) = source; %Record the UE transmitting packet
+                    end
+                else
+                    if Waiting_queue(source) > 0 %Send a new packet
+                        if rand(1) <= ACB_factor %ACB方法
+                            access = 1;
+                        else
+                            access = 0;
+                        end
+                        if access == 1
+                            Delay(source) = 384; %基礎傳輸時間(1次EDT，目前採用547Delay算法)
+                            Waiting_queue(source) = Waiting_queue(source)-1;
+                            Decoded(source) = 1; %Not decoded
+                            Chosen_EDT_set = randperm(N_EDT,N_replica);
+                            for replica = 1:N_replica
+                                Chosen_carrier = randi(N_sc);
+                                Chosen_EDT = Chosen_EDT_set(replica);
+                                transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier) = transmissionAttemptsEachSlot(Chosen_EDT,Chosen_carrier)+1;
+                                attemptSource(Chosen_EDT,Chosen_carrier) = source; %Record the UE transmitting packet
+                            end
+                        else
+                            Delay(source) = 384; %基礎傳輸時間(1次EDT，目前採用547Delay算法)
+                            Waiting_queue(source) = Waiting_queue(source)-1;
+                            Decoded(source) = 1; %Not decoded
+                        end
+                    end
+                end
+            end
+
+            
+            for i = 1:N_EDT
+                for j = 1:N_sc
+                    if transmissionAttemptsEachSlot(i,j) == 1 %No collision, not has been decoded
+                        CurrentUE = attemptSource(i,j);
+                        if Decoded(CurrentUE) == 1 && rand(1) > PLR %Success % Check if the packet passes through the AWGN model
+                            ackdPacketCount = ackdPacketCount + 1;
+                            Decoded(CurrentUE) = 0;
+                            backoffTimers(CurrentUE) = -1; %-1 means the timer is closed.
+                            Total_Delay = Total_Delay + Delay(CurrentUE);
+                            RetransmissionTrial(CurrentUE) = 0; %Reset the retransmission trial
+                            Delay(CurrentUE) = 0; %Reset the delay record
+                            RTT_blocked(CurrentUE) = 2;
+                        end
+                    end
+                end
+            end
+            for source = 1:sourceNumber
+                if Decoded(source) == 1 %Failed
+                    if RetransmissionTrial(source) < maxRetransmissionTrial
+                        Random_backoff = randi(Max_backoff);
+                        backoffTimers(source) = 1+Random_backoff; % Assign random backoff time: 2 time unit (or more)
+                        Delay(source) = Delay(source) + Random_backoff*384+510;
+                        RetransmissionTrial(source) = RetransmissionTrial(source)+1;
+   
+                    else
+                        %Packet loss
+                        backoffTimers(source) = -1;
+                        RetransmissionTrial(source) = 0;
+                        Delay(source) = 0;
+                        lossPacketCount = lossPacketCount + 1;
+                    end
+                end
+            end
+        end
+        loss = lossPacketCount + blockingPacketCount;
+        Packet_loss_ratio(idx,count) = loss / (ackdPacketCount + loss);
+        Average_Delay(idx,count) = Total_Delay/ackdPacketCount;
+        BlockingRatio(idx,count) = blockingPacketCount / loss;
+        count=count+1
+    end
+end
+Average_Delay = Average_Delay/1000; %ms => s
+load = sample:sample:maxload;
+throughput = load.*(1-Packet_loss_ratio);
+%legend_text = {'SA', 'DSA N=2', 'DSA N=3','SA,ACB', 'DSA N=2,ACB', 'DSA N=3,ACB'};
+legend_text = {'SA', 'DSA', 'SA ACB 0.8','DSA,ACB 0.8', 'SA ,ACB 0.5', 'DSA ,ACB 0.5'};
+
+figure(1)
+plot(load(1,:),throughput(1,:), '-','color','red')
+hold on;
+plot(load(1,:),throughput(2,:), '-','color','blue')
+hold on;
+plot(load(1,:),throughput(3,:), '--','color','red')
+hold on;
+plot(load(1,:),throughput(4,:), '--','color','blue')
+hold on;
+plot(load(1,:),throughput(5,:), '-o','color','red')
+hold on;
+plot(load(1,:),throughput(6,:), '-o','color','blue')
+hold on;
+title('Average Throughput')
+xlabel('G (kbps)')
+%xlabel('number of frequency carriers')
+ylabel('Average Throughput')
+legend(legend_text,'location','southeast'); % 添加图例
+
+
+figure(2)
+plot(load(1,:),Packet_loss_ratio(1,:), '-','color','red')
+hold on;
+plot(load(1,:),Packet_loss_ratio(2,:), '-','color','blue')
+hold on;
+plot(load(1,:),Packet_loss_ratio(3,:), '--','color','red')
+hold on;
+plot(load(1,:),Packet_loss_ratio(4,:), '--','color','blue')
+hold on;
+plot(load(1,:),Packet_loss_ratio(5,:), '-o','color','red')
+hold on;
+plot(load(1,:),Packet_loss_ratio(6,:), '-o','color','blue')
+hold on;
+title('Packet loss ratio')
+xlabel('G (kbps)')
+%xlabel('number of frequency carriers')
+ylabel('PLR')
+set(gca, 'YScale', 'log');
+legend(legend_text,'location','southeast'); % 添加图例
+
+figure(3)
+plot(load(1,:),Average_Delay(1,:), '-','color','red')
+hold on;
+plot(load(1,:),Average_Delay(2,:), '-','color','blue')
+hold on;
+plot(load(1,:),Average_Delay(3,:), '--','color','red')
+hold on;
+plot(load(1,:),Average_Delay(4,:), '--','color','blue')
+hold on;
+plot(load(1,:),Average_Delay(5,:), '-o','color','red')
+hold on;
+plot(load(1,:),Average_Delay(6,:), '-o','color','blue')
+hold on;
+title('Average Delay')
+xlabel('G (kbps)')
+%xlabel('number of frequency carriers')
+ylabel('second')
+%set(gca, 'YScale', 'log');
+legend(legend_text,'location','southeast'); % 添加图例
